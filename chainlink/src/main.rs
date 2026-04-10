@@ -53,6 +53,9 @@ enum Commands {
         /// Force update hooks even if already initialized
         #[arg(short, long)]
         force: bool,
+        /// Skip installing Claude Code hooks (database and rules only)
+        #[arg(long)]
+        no_hooks: bool,
     },
 
     /// Issue lifecycle commands (create, show, list, close, ...)
@@ -1182,9 +1185,9 @@ fn run() -> Result<()> {
     let json = cli.json;
 
     match cli.command {
-        Commands::Init { force } => {
+        Commands::Init { force, no_hooks } => {
             let cwd = env::current_dir()?;
-            commands::init::run(&cwd, force)
+            commands::init::run(&cwd, force, no_hooks)
         }
 
         // ====== Canonical hierarchical commands ======
