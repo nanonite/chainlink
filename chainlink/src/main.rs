@@ -42,6 +42,13 @@ struct Cli {
     )]
     log_format: String,
 
+    /// Path to .chainlink directory or issues.db file.
+    /// Overrides automatic detection. Use this when running from a git
+    /// worktree or subdirectory outside the project root.
+    #[arg(long = "db", env = "CHAINLINK_DB", global = true,
+           help = "Path to .chainlink directory or issues.db file")]
+    pub db_path: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -913,7 +920,20 @@ enum DaemonCommands {
 // Helpers
 // ============================================================================
 
-fn find_chainlink_dir() -> Result<PathBuf> {
+fn find_chainlink_dir(db_path_override: Option<&PathBuf>) -> Result<PathBuf> {
+    if let Some(p) = db_path_override {
+        if p.is_dir() {
+            return Ok(p.clone());
+        }
+        if let Some(parent) = p.parent() {
+            return Ok(parent.to_path_buf());
+        }
+        bail!(
+            "Invalid --db path '{}': expected a .chainlink directory or path to issues.db",
+            p.display()
+        );
+    }
+
     let mut current = env::current_dir()?;
 
     loop {
@@ -923,14 +943,22 @@ fn find_chainlink_dir() -> Result<PathBuf> {
         }
 
         if !current.pop() {
-            bail!("Not a chainlink repository (or any parent). Run 'chainlink init' first.");
+            bail!("Not a chainlink repository (or any parent). Run 'chainlink init' first, or use --db <path>.");
         }
     }
 }
 
-fn get_db() -> Result<Database> {
-    let chainlink_dir = find_chainlink_dir()?;
-    let db_path = chainlink_dir.join("issues.db");
+fn get_db(db_path_override: Option<&PathBuf>) -> Result<Database> {
+    let db_path = if let Some(override_path) = db_path_override {
+        if override_path.is_dir() {
+            override_path.join("issues.db")
+        } else {
+            override_path.clone()
+        }
+    } else {
+        let chainlink_dir = find_chainlink_dir(None)?;
+        chainlink_dir.join("issues.db")
+    };
     Database::open(&db_path).context("Failed to open database")
 }
 
@@ -954,7 +982,7 @@ fn init_tracing(log_level: &str, log_format: &str) {
 // Dispatch helpers for canonical subcommands
 // ============================================================================
 
-fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> {
+fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool, db_path: Option<&PathBuf>) -> Result<()> {
     match action {
         IssueCommands::Create {
             title,
@@ -964,8 +992,8 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             label,
             work,
         } => {
-            let db = get_db()?;
-            let chainlink_dir = find_chainlink_dir().ok();
+            let db = get_db(db_path)?;
+            let chainlink_dir = find_chainlink_dir(db_path).ok();
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work,
@@ -989,8 +1017,8 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             template,
             label,
         } => {
-            let db = get_db()?;
-            let chainlink_dir = find_chainlink_dir().ok();
+            let db = get_db(db_path)?;
+            let chainlink_dir = find_chainlink_dir(db_path).ok();
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work: true,
@@ -1015,8 +1043,8 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             label,
             work,
         } => {
-            let db = get_db()?;
-            let chainlink_dir = find_chainlink_dir().ok();
+            let db = get_db(db_path)?;
+            let chainlink_dir = find_chainlink_dir(db_path).ok();
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work,
@@ -1038,7 +1066,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             label,
             priority,
         } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             if json {
                 commands::list::run_json(&db, Some(&status), label.as_deref(), priority.as_deref())
             } else {
@@ -1047,7 +1075,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         }
 
         IssueCommands::Search { query } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             if json {
                 commands::search::run_json(&db, &query)
             } else {
@@ -1056,7 +1084,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         }
 
         IssueCommands::Show { id } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             if json {
                 commands::show::run_json(&db, id)
             } else {
@@ -1070,7 +1098,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             description,
             priority,
         } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::update::run(
                 &db,
                 id,
@@ -1081,8 +1109,8 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         }
 
         IssueCommands::Close { id, no_changelog } => {
-            let db = get_db()?;
-            let chainlink_dir = find_chainlink_dir()?;
+            let db = get_db(db_path)?;
+            let chainlink_dir = find_chainlink_dir(db_path)?;
             if quiet {
                 commands::status::close_quiet(&db, id, !no_changelog, &chainlink_dir)
             } else {
@@ -1095,8 +1123,8 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             priority,
             no_changelog,
         } => {
-            let db = get_db()?;
-            let chainlink_dir = find_chainlink_dir()?;
+            let db = get_db(db_path)?;
+            let chainlink_dir = find_chainlink_dir(db_path)?;
             commands::status::close_all(
                 &db,
                 label.as_deref(),
@@ -1107,47 +1135,47 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         }
 
         IssueCommands::Reopen { id } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::status::reopen(&db, id)
         }
 
         IssueCommands::Delete { id, force } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::delete::run(&db, id, force)
         }
 
         IssueCommands::Comment { id, text, kind } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::comment::run(&db, id, &text, &kind)
         }
 
         IssueCommands::Label { id, label } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::label::add(&db, id, &label)
         }
 
         IssueCommands::Unlabel { id, label } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::label::remove(&db, id, &label)
         }
 
         IssueCommands::Block { id, blocker } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::deps::block(&db, id, blocker)
         }
 
         IssueCommands::Unblock { id, blocker } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::deps::unblock(&db, id, blocker)
         }
 
         IssueCommands::Blocked => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::deps::list_blocked(&db)
         }
 
         IssueCommands::Ready => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::deps::list_ready(&db)
         }
 
@@ -1156,7 +1184,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             related,
             relation_type,
         } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::relate::add_typed(&db, id, related, &relation_type)
         }
 
@@ -1165,45 +1193,45 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             related,
             relation_type,
         } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::relate::remove_typed(&db, id, related, &relation_type)
         }
 
         IssueCommands::Related { id } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::relate::list(&db, id)
         }
 
         IssueCommands::Cascade { id } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::relate::cascade(&db, id)
         }
 
         IssueCommands::Falsify { id } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::relate::falsify(&db, id)
         }
 
         IssueCommands::Next => {
-            let db = get_db()?;
-            let chainlink_dir = find_chainlink_dir()?;
+            let db = get_db(db_path)?;
+            let chainlink_dir = find_chainlink_dir(db_path)?;
             commands::next::run(&db, &chainlink_dir)
         }
 
         IssueCommands::Tree { status } => {
-            let db = get_db()?;
+            let db = get_db(db_path)?;
             commands::tree::run(&db, Some(&status))
         }
 
         IssueCommands::Tested => {
-            let chainlink_dir = find_chainlink_dir()?;
+            let chainlink_dir = find_chainlink_dir(db_path)?;
             commands::tested::run(&chainlink_dir)
         }
     }
 }
 
-fn dispatch_timer(action: Option<TimerCommands>) -> Result<()> {
-    let db = get_db()?;
+fn dispatch_timer(action: Option<TimerCommands>, db_path: Option<&PathBuf>) -> Result<()> {
+    let db = get_db(db_path)?;
     match action {
         Some(TimerCommands::Start { id }) => commands::timer::start(&db, id),
         Some(TimerCommands::Stop) => commands::timer::stop(&db),
@@ -1245,8 +1273,8 @@ fn run() -> Result<()> {
         }
 
         // ====== Canonical hierarchical commands ======
-        Commands::Issue { action } => dispatch_issue(action, quiet, json),
-        Commands::Timer { action } => dispatch_timer(action),
+        Commands::Issue { action } => dispatch_issue(action, quiet, json, cli.db_path.as_ref()),
+        Commands::Timer { action } => dispatch_timer(action, cli.db_path.as_ref()),
 
         // ====== Hidden backward-compatible aliases ======
         Commands::Create {
@@ -1267,6 +1295,7 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
         Commands::Quick {
@@ -1285,6 +1314,7 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
         Commands::Subissue {
@@ -1305,6 +1335,7 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
         Commands::List {
@@ -1319,11 +1350,12 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
-        Commands::Search { query } => dispatch_issue(IssueCommands::Search { query }, quiet, json),
+        Commands::Search { query } => dispatch_issue(IssueCommands::Search { query }, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Show { id } => dispatch_issue(IssueCommands::Show { id }, quiet, json),
+        Commands::Show { id } => dispatch_issue(IssueCommands::Show { id }, quiet, json, cli.db_path.as_ref()),
 
         Commands::Update {
             id,
@@ -1339,10 +1371,11 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
         Commands::Close { id, no_changelog } => {
-            dispatch_issue(IssueCommands::Close { id, no_changelog }, quiet, json)
+            dispatch_issue(IssueCommands::Close { id, no_changelog }, quiet, json, cli.db_path.as_ref())
         }
 
         Commands::CloseAll {
@@ -1357,37 +1390,38 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
-        Commands::Reopen { id } => dispatch_issue(IssueCommands::Reopen { id }, quiet, json),
+        Commands::Reopen { id } => dispatch_issue(IssueCommands::Reopen { id }, quiet, json, cli.db_path.as_ref()),
 
         Commands::Delete { id, force } => {
-            dispatch_issue(IssueCommands::Delete { id, force }, quiet, json)
+            dispatch_issue(IssueCommands::Delete { id, force }, quiet, json, cli.db_path.as_ref())
         }
 
         Commands::Comment { id, text, kind } => {
-            dispatch_issue(IssueCommands::Comment { id, text, kind }, quiet, json)
+            dispatch_issue(IssueCommands::Comment { id, text, kind }, quiet, json, cli.db_path.as_ref())
         }
 
         Commands::Label { id, label } => {
-            dispatch_issue(IssueCommands::Label { id, label }, quiet, json)
+            dispatch_issue(IssueCommands::Label { id, label }, quiet, json, cli.db_path.as_ref())
         }
 
         Commands::Unlabel { id, label } => {
-            dispatch_issue(IssueCommands::Unlabel { id, label }, quiet, json)
+            dispatch_issue(IssueCommands::Unlabel { id, label }, quiet, json, cli.db_path.as_ref())
         }
 
         Commands::Block { id, blocker } => {
-            dispatch_issue(IssueCommands::Block { id, blocker }, quiet, json)
+            dispatch_issue(IssueCommands::Block { id, blocker }, quiet, json, cli.db_path.as_ref())
         }
 
         Commands::Unblock { id, blocker } => {
-            dispatch_issue(IssueCommands::Unblock { id, blocker }, quiet, json)
+            dispatch_issue(IssueCommands::Unblock { id, blocker }, quiet, json, cli.db_path.as_ref())
         }
 
-        Commands::Blocked => dispatch_issue(IssueCommands::Blocked, quiet, json),
+        Commands::Blocked => dispatch_issue(IssueCommands::Blocked, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Ready => dispatch_issue(IssueCommands::Ready, quiet, json),
+        Commands::Ready => dispatch_issue(IssueCommands::Ready, quiet, json, cli.db_path.as_ref()),
 
         Commands::Relate {
             id,
@@ -1401,6 +1435,7 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
         Commands::Unrelate {
@@ -1415,27 +1450,28 @@ fn run() -> Result<()> {
             },
             quiet,
             json,
+            cli.db_path.as_ref(),
         ),
 
-        Commands::Related { id } => dispatch_issue(IssueCommands::Related { id }, quiet, json),
+        Commands::Related { id } => dispatch_issue(IssueCommands::Related { id }, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Cascade { id } => dispatch_issue(IssueCommands::Cascade { id }, quiet, json),
+        Commands::Cascade { id } => dispatch_issue(IssueCommands::Cascade { id }, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Falsify { id } => dispatch_issue(IssueCommands::Falsify { id }, quiet, json),
+        Commands::Falsify { id } => dispatch_issue(IssueCommands::Falsify { id }, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Next => dispatch_issue(IssueCommands::Next, quiet, json),
+        Commands::Next => dispatch_issue(IssueCommands::Next, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Tree { status } => dispatch_issue(IssueCommands::Tree { status }, quiet, json),
+        Commands::Tree { status } => dispatch_issue(IssueCommands::Tree { status }, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Tested => dispatch_issue(IssueCommands::Tested, quiet, json),
+        Commands::Tested => dispatch_issue(IssueCommands::Tested, quiet, json, cli.db_path.as_ref()),
 
-        Commands::TimerStart { id } => dispatch_timer(Some(TimerCommands::Start { id })),
+        Commands::TimerStart { id } => dispatch_timer(Some(TimerCommands::Start { id }), cli.db_path.as_ref()),
 
-        Commands::TimerStop => dispatch_timer(Some(TimerCommands::Stop)),
+        Commands::TimerStop => dispatch_timer(Some(TimerCommands::Stop), cli.db_path.as_ref()),
 
         // ====== Non-issue, non-timer commands ======
         Commands::Export { output, format } => {
-            let db = get_db()?;
+            let db = get_db(cli.db_path.as_ref())?;
             match format.as_str() {
                 "json" => commands::export::run_json(&db, output.as_deref()),
                 "markdown" | "md" => commands::export::run_markdown(&db, output.as_deref()),
@@ -1446,13 +1482,13 @@ fn run() -> Result<()> {
         }
 
         Commands::Import { input } => {
-            let db = get_db()?;
+            let db = get_db(cli.db_path.as_ref())?;
             let path = std::path::Path::new(&input);
             commands::import::run_json(&db, path)
         }
 
         Commands::Archive { action } => {
-            let db = get_db()?;
+            let db = get_db(cli.db_path.as_ref())?;
             match action {
                 ArchiveCommands::Add { id } => commands::archive::archive(&db, id),
                 ArchiveCommands::Remove { id } => commands::archive::unarchive(&db, id),
@@ -1462,7 +1498,7 @@ fn run() -> Result<()> {
         }
 
         Commands::Milestone { action } => {
-            let db = get_db()?;
+            let db = get_db(cli.db_path.as_ref())?;
             match action {
                 MilestoneCommands::Create { name, description } => {
                     commands::milestone::create(&db, &name, description.as_deref())
@@ -1479,10 +1515,10 @@ fn run() -> Result<()> {
         }
 
         Commands::Session { action } => {
-            let db = get_db()?;
+            let db = get_db(cli.db_path.as_ref())?;
             match action {
                 SessionCommands::Start => {
-                    let chainlink_dir = find_chainlink_dir()?;
+                    let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
                     commands::session::start(&db, &chainlink_dir)
                 }
                 SessionCommands::End { notes } => commands::session::end(&db, notes.as_deref()),
@@ -1494,7 +1530,7 @@ fn run() -> Result<()> {
                     }
                 }
                 SessionCommands::Work { id } => {
-                    let chainlink_dir = find_chainlink_dir()?;
+                    let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
                     commands::session::work(&db, id, &chainlink_dir)
                 }
                 SessionCommands::LastHandoff => commands::session::last_handoff(&db),
@@ -1504,22 +1540,22 @@ fn run() -> Result<()> {
 
         Commands::Daemon { action } => match action {
             DaemonCommands::Start => {
-                let chainlink_dir = find_chainlink_dir()?;
+                let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
                 daemon::start(&chainlink_dir)
             }
             DaemonCommands::Stop => {
-                let chainlink_dir = find_chainlink_dir()?;
+                let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
                 daemon::stop(&chainlink_dir)
             }
             DaemonCommands::Status => {
-                let chainlink_dir = find_chainlink_dir()?;
+                let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
                 daemon::status(&chainlink_dir)
             }
             DaemonCommands::Run { dir } => daemon::run_daemon(&dir),
         },
 
         Commands::Cpitd { action } => {
-            let db = get_db()?;
+            let db = get_db(cli.db_path.as_ref())?;
             match action {
                 CpitdCommands::Scan {
                     paths,
@@ -1533,7 +1569,7 @@ fn run() -> Result<()> {
         }
 
         Commands::Usage { action } => {
-            let db = get_db()?;
+            let db = get_db(cli.db_path.as_ref())?;
             match action {
                 UsageCommands::Record {
                     agent,
@@ -1572,7 +1608,7 @@ fn run() -> Result<()> {
         }
 
         Commands::Agent { action } => {
-            let chainlink_dir = find_chainlink_dir()?;
+            let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
             match action {
                 AgentCommands::Init {
                     agent_id,
@@ -1586,10 +1622,10 @@ fn run() -> Result<()> {
         }
 
         Commands::Locks { action } => {
-            let chainlink_dir = find_chainlink_dir()?;
+            let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
             match action {
                 LocksCommands::List => {
-                    let db = get_db()?;
+                    let db = get_db(cli.db_path.as_ref())?;
                     commands::locks_cmd::list(&chainlink_dir, &db, json)
                 }
                 LocksCommands::Check { id } => commands::locks_cmd::check(&chainlink_dir, id),
@@ -1602,7 +1638,7 @@ fn run() -> Result<()> {
         }
 
         Commands::Sync => {
-            let chainlink_dir = find_chainlink_dir()?;
+            let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
             commands::locks_cmd::sync_cmd(&chainlink_dir)
         }
     }
