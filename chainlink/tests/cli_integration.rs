@@ -752,6 +752,29 @@ fn test_timer_status() {
 }
 
 #[test]
+fn test_timer_status_json_outputs_array() {
+    let dir = tempdir().unwrap();
+    init_chainlink(dir.path());
+
+    run_chainlink(dir.path(), &["create", "Issue one"]);
+    run_chainlink(dir.path(), &["create", "Issue two"]);
+    run_chainlink(dir.path(), &["timer", "start", "1"]);
+    run_chainlink(dir.path(), &["timer", "start", "2"]);
+
+    let (success, stdout, stderr) = run_chainlink(dir.path(), &["--json", "timer"]);
+
+    assert!(success, "timer --json failed: {}", stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("timer --json should be valid JSON");
+    let timers = parsed
+        .as_array()
+        .expect("timer --json should return an array");
+    assert_eq!(timers.len(), 2);
+    assert!(timers.iter().any(|timer| timer["issue_id"] == 1));
+    assert!(timers.iter().any(|timer| timer["issue_id"] == 2));
+}
+
+#[test]
 fn test_timer_status_no_timer() {
     let dir = tempdir().unwrap();
     init_chainlink(dir.path());
