@@ -16,7 +16,7 @@ use std::path::Path;
 
 use crate::models::Issue;
 
-const SCHEMA_VERSION: i32 = 13;
+const SCHEMA_VERSION: i32 = 14;
 
 /// Well-known relation types. Unknown types are accepted with a warning;
 /// these are the recognized conventions.
@@ -253,6 +253,9 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_deps_blocked ON dependencies(blocked_id);
                 CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_issue ON time_entries(issue_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_active_issue
+                    ON time_entries(issue_id)
+                    WHERE ended_at IS NULL;
                 CREATE INDEX IF NOT EXISTS idx_relations_1 ON relations(issue_id_1);
                 CREATE INDEX IF NOT EXISTS idx_relations_2 ON relations(issue_id_2);
                 CREATE INDEX IF NOT EXISTS idx_milestone_issues_m ON milestone_issues(milestone_id);
@@ -335,6 +338,31 @@ impl Database {
             if version < 13 {
                 self.migrate(
                     "ALTER TABLE relations ADD COLUMN relation_type TEXT NOT NULL DEFAULT 'related'",
+                );
+            }
+
+            // Migration v14: timers may run concurrently across issues, but
+            // a single issue may only have one active timer. Before adding the
+            // partial unique index, close duplicate active rows for the same
+            // issue so older databases can migrate without failing.
+            if version < 14 {
+                self.migrate_batch(
+                    r#"
+                    UPDATE time_entries
+                    SET ended_at = started_at,
+                        duration_seconds = 0
+                    WHERE ended_at IS NULL
+                      AND id NOT IN (
+                          SELECT MAX(id)
+                          FROM time_entries
+                          WHERE ended_at IS NULL
+                          GROUP BY issue_id
+                      );
+
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_active_issue
+                        ON time_entries(issue_id)
+                        WHERE ended_at IS NULL;
+                    "#,
                 );
             }
 
