@@ -783,8 +783,8 @@ fn test_timer_status_no_timer() {
 
     assert!(success);
     assert!(
-        stdout.contains("No timer running"),
-        "Expected 'No timer running' message, got: {}",
+        stdout.contains("No timers running"),
+        "Expected 'No timers running' message, got: {}",
         stdout
     );
 }

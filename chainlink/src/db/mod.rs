@@ -253,9 +253,6 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_deps_blocked ON dependencies(blocked_id);
                 CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_issue ON time_entries(issue_id);
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_active_issue
-                    ON time_entries(issue_id)
-                    WHERE ended_at IS NULL;
                 CREATE INDEX IF NOT EXISTS idx_relations_1 ON relations(issue_id_1);
                 CREATE INDEX IF NOT EXISTS idx_relations_2 ON relations(issue_id_2);
                 CREATE INDEX IF NOT EXISTS idx_milestone_issues_m ON milestone_issues(milestone_id);

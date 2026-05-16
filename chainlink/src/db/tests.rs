@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::Connection;
 use tempfile::tempdir;
 
 fn setup_test_db() -> (Database, tempfile::TempDir) {
@@ -472,6 +473,91 @@ fn test_start_and_stop_timer() {
 
     let active = db.get_active_timers().unwrap();
     assert!(active.is_empty());
+}
+
+#[test]
+fn test_concurrent_timers_across_issues() {
+    let (db, _dir) = setup_test_db();
+
+    let id1 = db.create_issue("Issue 1", None, "medium").unwrap();
+    let id2 = db.create_issue("Issue 2", None, "medium").unwrap();
+
+    db.start_timer(id1).unwrap();
+    db.start_timer(id2).unwrap();
+
+    let active = db.get_active_timers().unwrap();
+    assert_eq!(active.len(), 2);
+    assert!(active.iter().any(|timer| timer.issue_id == id1));
+    assert!(active.iter().any(|timer| timer.issue_id == id2));
+}
+
+#[test]
+fn test_timer_start_is_idempotent_per_issue() {
+    let (db, _dir) = setup_test_db();
+
+    let id = db.create_issue("Issue", None, "medium").unwrap();
+
+    let first = db.start_timer(id).unwrap();
+    let second = db.start_timer(id).unwrap();
+
+    assert_eq!(first, second);
+    assert_eq!(db.get_active_timers().unwrap().len(), 1);
+}
+
+#[test]
+fn test_schema_v14_migration_closes_duplicate_active_timers() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("test.db");
+
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE issues (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                status TEXT NOT NULL DEFAULT 'open',
+                priority TEXT NOT NULL DEFAULT 'medium',
+                parent_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                closed_at TEXT
+            );
+            CREATE TABLE time_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                issue_id INTEGER NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                duration_seconds INTEGER
+            );
+            INSERT INTO issues (id, title, status, priority, created_at, updated_at)
+                VALUES (1, 'Issue 1', 'open', 'medium', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+            INSERT INTO time_entries (issue_id, started_at)
+                VALUES (1, '2026-01-01T00:00:00Z');
+            INSERT INTO time_entries (issue_id, started_at)
+                VALUES (1, '2026-01-01T00:01:00Z');
+            PRAGMA user_version = 13;
+            "#,
+        )
+        .unwrap();
+    }
+
+    let db = Database::open(&db_path).unwrap();
+
+    let active = db.get_active_timers().unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].issue_id, 1);
+
+    let duplicate_count: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM time_entries WHERE issue_id = 1 AND ended_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(duplicate_count, 1);
 }
 
 #[test]

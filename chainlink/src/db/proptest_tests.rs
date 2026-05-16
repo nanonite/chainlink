@@ -268,3 +268,29 @@ proptest! {
         prop_assert!(results.iter().all(|i| i.title.contains("%test_")));
     }
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(8))]
+
+    /// Timers are singleton per issue but concurrent across distinct issues.
+    #[test]
+    fn prop_timer_singleton_per_issue(start_count in 1usize..8) {
+        let (db, _dir) = setup_test_db();
+        let ids: Vec<i64> = (0..start_count)
+            .map(|i| db.create_issue(&format!("Issue {}", i), None, "medium").unwrap())
+            .collect();
+
+        for id in &ids {
+            let first = db.start_timer(*id).unwrap();
+            let second = db.start_timer(*id).unwrap();
+            prop_assert_eq!(first, second);
+        }
+
+        let active = db.get_active_timers().unwrap();
+        prop_assert_eq!(active.len(), ids.len());
+
+        for id in ids {
+            prop_assert!(active.iter().any(|timer| timer.issue_id == id));
+        }
+    }
+}
