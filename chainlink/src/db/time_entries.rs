@@ -55,14 +55,6 @@ impl Database {
         }
     }
 
-    pub fn get_active_timer(&self) -> Result<Option<(i64, DateTime<Utc>)>> {
-        Ok(self
-            .get_active_timers()?
-            .into_iter()
-            .next()
-            .map(|timer| (timer.issue_id, timer.started_at)))
-    }
-
     pub fn get_active_timer_for_issue(&self, issue_id: i64) -> Result<Option<ActiveTimer>> {
         let result: Option<(i64, String)> = self
             .conn

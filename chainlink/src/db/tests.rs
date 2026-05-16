@@ -463,16 +463,15 @@ fn test_start_and_stop_timer() {
     let timer_id = db.start_timer(id).unwrap();
     assert!(timer_id > 0);
 
-    let active = db.get_active_timer().unwrap();
+    let active = db.get_active_timer_for_issue(id).unwrap();
     assert!(active.is_some());
-    assert_eq!(active.unwrap().0, id);
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     db.stop_timer(id).unwrap();
 
-    let active = db.get_active_timer().unwrap();
-    assert!(active.is_none());
+    let active = db.get_active_timers().unwrap();
+    assert!(active.is_empty());
 }
 
 #[test]

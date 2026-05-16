@@ -33,8 +33,8 @@ fn test_timer_roundtrip() {
         show_running.stdout,
     );
 
-    // Stop the timer (top-level `stop` command).
-    let stop = h.run_ok(&["stop"]);
+    // Stop the timer (top-level `stop <id>` command).
+    let stop = h.run_ok(&["stop", "1"]);
     assert!(
         stop.stdout_contains("Stopped")
             || stop.stdout_contains("stopped")
@@ -83,7 +83,7 @@ fn test_timer_start_already_running() {
 fn test_timer_stop_not_running() {
     let h = SmokeHarness::new();
 
-    let result = h.run(&["stop"]);
+    let result = h.run(&["stop", "1"]);
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
         result.success

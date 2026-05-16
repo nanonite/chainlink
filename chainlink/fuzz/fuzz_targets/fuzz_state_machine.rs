@@ -124,7 +124,7 @@ fuzz_target!(|input: StateMachineInput| {
                 let _ = db.get_current_session();
             }
             StateOp::GetActiveTimer => {
-                let _ = db.get_active_timer();
+                let _ = db.get_active_timers();
             }
             StateOp::ListIssues => {
                 let _ = db.list_issues(None, None, None);
@@ -137,7 +137,7 @@ fuzz_target!(|input: StateMachineInput| {
 
     // Final consistency checks - should never panic
     let _ = db.get_current_session();
-    let _ = db.get_active_timer();
+    let _ = db.get_active_timers();
     let _ = db.list_issues(None, None, None);
     let _ = db.list_archived_issues();
 });

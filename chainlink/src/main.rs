@@ -45,8 +45,12 @@ struct Cli {
     /// Path to .chainlink directory or issues.db file.
     /// Overrides automatic detection. Use this when running from a git
     /// worktree or subdirectory outside the project root.
-    #[arg(long = "db", env = "CHAINLINK_DB", global = true,
-           help = "Path to .chainlink directory or issues.db file")]
+    #[arg(
+        long = "db",
+        env = "CHAINLINK_DB",
+        global = true,
+        help = "Path to .chainlink directory or issues.db file"
+    )]
     pub db_path: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -71,7 +75,7 @@ enum Commands {
         action: IssueCommands,
     },
 
-    /// Time tracking (start, stop, show)
+    /// Time tracking (start, stop, show, list)
     Timer {
         #[command(subcommand)]
         action: Option<TimerCommands>,
@@ -416,9 +420,12 @@ enum Commands {
         id: i64,
     },
 
-    /// Stop the timer (shortcut for `timer stop`)
+    /// Stop a timer for an issue (shortcut for `timer stop <id>`)
     #[command(hide = true, name = "stop")]
-    TimerStop,
+    TimerStop {
+        /// Issue ID
+        id: i64,
+    },
 }
 
 // ============================================================================
@@ -677,10 +684,18 @@ enum TimerCommands {
         /// Issue ID
         id: i64,
     },
-    /// Stop the current timer
-    Stop,
-    /// Show current timer status
-    Show,
+    /// Stop an active timer for a specific issue
+    Stop {
+        /// Issue ID
+        id: i64,
+    },
+    /// Show active timer status, optionally for a specific issue
+    Show {
+        /// Issue ID
+        id: Option<i64>,
+    },
+    /// List all active timers
+    List,
 }
 
 // ============================================================================
@@ -982,7 +997,12 @@ fn init_tracing(log_level: &str, log_format: &str) {
 // Dispatch helpers for canonical subcommands
 // ============================================================================
 
-fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool, db_path: Option<&PathBuf>) -> Result<()> {
+fn dispatch_issue(
+    action: IssueCommands,
+    quiet: bool,
+    json: bool,
+    db_path: Option<&PathBuf>,
+) -> Result<()> {
     match action {
         IssueCommands::Create {
             title,
@@ -1230,12 +1250,17 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool, db_path: Optio
     }
 }
 
-fn dispatch_timer(action: Option<TimerCommands>, db_path: Option<&PathBuf>) -> Result<()> {
+fn dispatch_timer(
+    action: Option<TimerCommands>,
+    db_path: Option<&PathBuf>,
+    json: bool,
+) -> Result<()> {
     let db = get_db(db_path)?;
     match action {
         Some(TimerCommands::Start { id }) => commands::timer::start(&db, id),
-        Some(TimerCommands::Stop) => commands::timer::stop(&db),
-        Some(TimerCommands::Show) | None => commands::timer::status(&db),
+        Some(TimerCommands::Stop { id }) => commands::timer::stop(&db, id),
+        Some(TimerCommands::Show { id }) => commands::timer::status(&db, id, json),
+        Some(TimerCommands::List) | None => commands::timer::list(&db, json),
     }
 }
 
@@ -1274,7 +1299,7 @@ fn run() -> Result<()> {
 
         // ====== Canonical hierarchical commands ======
         Commands::Issue { action } => dispatch_issue(action, quiet, json, cli.db_path.as_ref()),
-        Commands::Timer { action } => dispatch_timer(action, cli.db_path.as_ref()),
+        Commands::Timer { action } => dispatch_timer(action, cli.db_path.as_ref(), json),
 
         // ====== Hidden backward-compatible aliases ======
         Commands::Create {
@@ -1353,9 +1378,19 @@ fn run() -> Result<()> {
             cli.db_path.as_ref(),
         ),
 
-        Commands::Search { query } => dispatch_issue(IssueCommands::Search { query }, quiet, json, cli.db_path.as_ref()),
+        Commands::Search { query } => dispatch_issue(
+            IssueCommands::Search { query },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
-        Commands::Show { id } => dispatch_issue(IssueCommands::Show { id }, quiet, json, cli.db_path.as_ref()),
+        Commands::Show { id } => dispatch_issue(
+            IssueCommands::Show { id },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
         Commands::Update {
             id,
@@ -1374,9 +1409,12 @@ fn run() -> Result<()> {
             cli.db_path.as_ref(),
         ),
 
-        Commands::Close { id, no_changelog } => {
-            dispatch_issue(IssueCommands::Close { id, no_changelog }, quiet, json, cli.db_path.as_ref())
-        }
+        Commands::Close { id, no_changelog } => dispatch_issue(
+            IssueCommands::Close { id, no_changelog },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
         Commands::CloseAll {
             label,
@@ -1393,33 +1431,58 @@ fn run() -> Result<()> {
             cli.db_path.as_ref(),
         ),
 
-        Commands::Reopen { id } => dispatch_issue(IssueCommands::Reopen { id }, quiet, json, cli.db_path.as_ref()),
+        Commands::Reopen { id } => dispatch_issue(
+            IssueCommands::Reopen { id },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
-        Commands::Delete { id, force } => {
-            dispatch_issue(IssueCommands::Delete { id, force }, quiet, json, cli.db_path.as_ref())
+        Commands::Delete { id, force } => dispatch_issue(
+            IssueCommands::Delete { id, force },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
+
+        Commands::Comment { id, text, kind } => dispatch_issue(
+            IssueCommands::Comment { id, text, kind },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
+
+        Commands::Label { id, label } => dispatch_issue(
+            IssueCommands::Label { id, label },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
+
+        Commands::Unlabel { id, label } => dispatch_issue(
+            IssueCommands::Unlabel { id, label },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
+
+        Commands::Block { id, blocker } => dispatch_issue(
+            IssueCommands::Block { id, blocker },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
+
+        Commands::Unblock { id, blocker } => dispatch_issue(
+            IssueCommands::Unblock { id, blocker },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
+
+        Commands::Blocked => {
+            dispatch_issue(IssueCommands::Blocked, quiet, json, cli.db_path.as_ref())
         }
-
-        Commands::Comment { id, text, kind } => {
-            dispatch_issue(IssueCommands::Comment { id, text, kind }, quiet, json, cli.db_path.as_ref())
-        }
-
-        Commands::Label { id, label } => {
-            dispatch_issue(IssueCommands::Label { id, label }, quiet, json, cli.db_path.as_ref())
-        }
-
-        Commands::Unlabel { id, label } => {
-            dispatch_issue(IssueCommands::Unlabel { id, label }, quiet, json, cli.db_path.as_ref())
-        }
-
-        Commands::Block { id, blocker } => {
-            dispatch_issue(IssueCommands::Block { id, blocker }, quiet, json, cli.db_path.as_ref())
-        }
-
-        Commands::Unblock { id, blocker } => {
-            dispatch_issue(IssueCommands::Unblock { id, blocker }, quiet, json, cli.db_path.as_ref())
-        }
-
-        Commands::Blocked => dispatch_issue(IssueCommands::Blocked, quiet, json, cli.db_path.as_ref()),
 
         Commands::Ready => dispatch_issue(IssueCommands::Ready, quiet, json, cli.db_path.as_ref()),
 
@@ -1453,21 +1516,49 @@ fn run() -> Result<()> {
             cli.db_path.as_ref(),
         ),
 
-        Commands::Related { id } => dispatch_issue(IssueCommands::Related { id }, quiet, json, cli.db_path.as_ref()),
+        Commands::Related { id } => dispatch_issue(
+            IssueCommands::Related { id },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
-        Commands::Cascade { id } => dispatch_issue(IssueCommands::Cascade { id }, quiet, json, cli.db_path.as_ref()),
+        Commands::Cascade { id } => dispatch_issue(
+            IssueCommands::Cascade { id },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
-        Commands::Falsify { id } => dispatch_issue(IssueCommands::Falsify { id }, quiet, json, cli.db_path.as_ref()),
+        Commands::Falsify { id } => dispatch_issue(
+            IssueCommands::Falsify { id },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
         Commands::Next => dispatch_issue(IssueCommands::Next, quiet, json, cli.db_path.as_ref()),
 
-        Commands::Tree { status } => dispatch_issue(IssueCommands::Tree { status }, quiet, json, cli.db_path.as_ref()),
+        Commands::Tree { status } => dispatch_issue(
+            IssueCommands::Tree { status },
+            quiet,
+            json,
+            cli.db_path.as_ref(),
+        ),
 
-        Commands::Tested => dispatch_issue(IssueCommands::Tested, quiet, json, cli.db_path.as_ref()),
+        Commands::Tested => {
+            dispatch_issue(IssueCommands::Tested, quiet, json, cli.db_path.as_ref())
+        }
 
-        Commands::TimerStart { id } => dispatch_timer(Some(TimerCommands::Start { id }), cli.db_path.as_ref()),
+        Commands::TimerStart { id } => dispatch_timer(
+            Some(TimerCommands::Start { id }),
+            cli.db_path.as_ref(),
+            json,
+        ),
 
-        Commands::TimerStop => dispatch_timer(Some(TimerCommands::Stop), cli.db_path.as_ref()),
+        Commands::TimerStop { id } => {
+            dispatch_timer(Some(TimerCommands::Stop { id }), cli.db_path.as_ref(), json)
+        }
 
         // ====== Non-issue, non-timer commands ======
         Commands::Export { output, format } => {

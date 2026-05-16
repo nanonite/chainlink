@@ -729,7 +729,7 @@ fn test_timer_stop() {
 
     run_chainlink(dir.path(), &["create", "Issue to time"]);
     run_chainlink(dir.path(), &["start", "1"]);
-    let (success, stdout, _) = run_chainlink(dir.path(), &["stop"]);
+    let (success, stdout, _) = run_chainlink(dir.path(), &["stop", "1"]);
 
     assert!(success);
     assert!(stdout.contains("Stopped") || stdout.contains("stopped") || stdout.contains("timer"));
