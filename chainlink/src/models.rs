@@ -59,6 +59,12 @@ pub struct TokenUsage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ActiveTimer {
+    pub issue_id: i64,
+    pub started_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Relation {
     pub issue_id_1: i64,
     pub issue_id_2: i64,
