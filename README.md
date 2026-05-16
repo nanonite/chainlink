@@ -21,7 +21,7 @@ A simple, lean issue tracker CLI designed for AI-assisted development. Track tas
 - **Related issues**: Link related issues together for context
 - **Labels & priorities**: Organize issues with labels and priority levels
 - **Milestones**: Group issues into milestones/epics for release planning
-- **Time tracking**: Start/stop timers to track time spent on issues
+- **Time tracking**: Run one active timer per issue, with concurrent timers across issues
 - **Smart recommendations**: `chainlink next` suggests what to work on based on priority and progress
 - **Tree view**: Visualize issue hierarchy with `chainlink tree`
 - **JSON output**: `--json` flag for structured, machine-readable output
@@ -191,9 +191,11 @@ chainlink session end --notes "Fixed auth bug, dark mode is next"
 
 | Command | Description |
 |---------|-------------|
-| `chainlink start <id>` | Start a timer for an issue |
-| `chainlink stop` | Stop the current timer |
-| `chainlink timer` | Show current timer status |
+| `chainlink start <id>` | Start a timer for an issue; idempotent if that issue is already running |
+| `chainlink stop <id>` | Stop the active timer for an issue |
+| `chainlink timer` | List all active timers |
+| `chainlink timer show [id]` | Show all active timers, or one issue's active timer |
+| `chainlink timer list` | List all active timers |
 
 ### Session Management
 
