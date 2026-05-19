@@ -1,4 +1,5 @@
 mod commands;
+mod config;
 mod daemon;
 mod db;
 mod identity;
@@ -147,6 +148,12 @@ enum Commands {
 
     /// Fetch locks and report coordination status
     Sync,
+
+    /// Export Chainlink pages into a Logseq graph
+    Logseq {
+        #[command(subcommand)]
+        action: LogseqCommands,
+    },
 
     // ========================================================================
     // Hidden backward-compatible aliases (flat commands)
@@ -912,6 +919,25 @@ enum LocksCommands {
     Steal {
         /// Issue ID
         id: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum LogseqCommands {
+    /// Export Chainlink issues and sessions to Logseq pages
+    Export {
+        /// Refresh only one issue page
+        #[arg(long)]
+        id: Option<i64>,
+    },
+    /// Configure Logseq export settings
+    Config {
+        /// Persist the Logseq graph directory
+        #[arg(long = "graph-dir")]
+        graph_dir: Option<PathBuf>,
+        /// Print current Logseq config
+        #[arg(long)]
+        show: bool,
     },
 }
 
@@ -1731,6 +1757,25 @@ fn run() -> Result<()> {
         Commands::Sync => {
             let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
             commands::locks_cmd::sync_cmd(&chainlink_dir)
+        }
+
+        Commands::Logseq { action } => {
+            let chainlink_dir = find_chainlink_dir(cli.db_path.as_ref())?;
+            match action {
+                LogseqCommands::Export { id } => {
+                    let db = get_db(cli.db_path.as_ref())?;
+                    commands::logseq::export(&db, &chainlink_dir, id)
+                }
+                LogseqCommands::Config { graph_dir, show } => {
+                    if let Some(path) = graph_dir {
+                        commands::logseq::configure_graph_dir(&chainlink_dir, path)
+                    } else if show {
+                        commands::logseq::show_config(&chainlink_dir)
+                    } else {
+                        anyhow::bail!("Use `chainlink logseq config --graph-dir <path>` or `chainlink logseq config --show`")
+                    }
+                }
+            }
         }
     }
 }

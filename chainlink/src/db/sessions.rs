@@ -74,6 +74,32 @@ impl Database {
         Ok(session)
     }
 
+    pub fn list_sessions(&self, limit: Option<usize>) -> Result<Vec<Session>> {
+        let mut sql = String::from(
+            "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions ORDER BY id DESC",
+        );
+        if let Some(limit) = limit {
+            sql.push_str(&format!(" LIMIT {}", limit));
+        }
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let sessions = stmt
+            .query_map([], |row| {
+                Ok(Session {
+                    id: row.get(0)?,
+                    started_at: parse_datetime(row.get::<_, String>(1)?),
+                    ended_at: row.get::<_, Option<String>>(2)?.map(parse_datetime),
+                    active_issue_id: row.get(3)?,
+                    handoff_notes: row.get(4)?,
+                    last_action: row.get(5)?,
+                    agent_id: row.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(sessions)
+    }
+
     pub fn set_session_issue(&self, session_id: i64, issue_id: i64) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE sessions SET active_issue_id = ?1 WHERE id = ?2",

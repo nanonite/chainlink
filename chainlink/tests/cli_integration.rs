@@ -991,6 +991,45 @@ fn test_import_json() {
     assert!(list_out.contains("Exported Issue") || list_out.contains("#1"));
 }
 
+#[test]
+fn test_logseq_export_cli() {
+    let dir = tempdir().unwrap();
+    init_chainlink(dir.path());
+    run_chainlink(dir.path(), &["create", "Logseq issue", "-p", "high"]);
+    run_chainlink(dir.path(), &["label", "1", "logseq"]);
+    run_chainlink(dir.path(), &["comment", "1", "Exported to Logseq"]);
+
+    let graph_dir = dir.path().join("graph");
+    let graph = graph_dir.to_str().unwrap();
+    let (configured, _, stderr) =
+        run_chainlink(dir.path(), &["logseq", "config", "--graph-dir", graph]);
+    assert!(configured, "config failed: {}", stderr);
+
+    let (shown, stdout, stderr) = run_chainlink(dir.path(), &["logseq", "config", "--show"]);
+    assert!(shown, "show failed: {}", stderr);
+    assert!(stdout.contains(graph));
+
+    let (exported, _, stderr) = run_chainlink(dir.path(), &["logseq", "export"]);
+    assert!(exported, "export failed: {}", stderr);
+
+    let pages = graph_dir.join("pages");
+    let issue_page = pages.join("chainlink___issues___0001.md");
+    let dashboard_page = pages.join("chainlink___dashboard.md");
+    let sessions_page = pages.join("chainlink___sessions.md");
+    assert!(issue_page.exists());
+    assert!(dashboard_page.exists());
+    assert!(sessions_page.exists());
+
+    let issue = std::fs::read_to_string(issue_page).unwrap();
+    assert!(issue.contains("priority:: high"));
+    assert!(issue.contains("labels:: logseq"));
+    assert!(issue.contains("- TODO Logseq issue"));
+
+    let (single_exported, _, stderr) =
+        run_chainlink(dir.path(), &["logseq", "export", "--id", "1"]);
+    assert!(single_exported, "single export failed: {}", stderr);
+}
+
 // ==================== Tested Command Tests ====================
 
 #[test]
