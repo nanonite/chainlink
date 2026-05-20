@@ -148,44 +148,56 @@ fn write_dashboard_page(db: &Database, pages_dir: &Path, issues: &[Issue]) -> Re
     let active_timers = db.get_active_timers()?;
     let recent_sessions = db.list_sessions(Some(5))?;
     let mut open_issues: Vec<&Issue> = issues.iter().filter(|i| i.status == "open").collect();
+    let mut closed_issues: Vec<&Issue> = issues.iter().filter(|i| i.status == "closed").collect();
     open_issues.sort_by_key(|issue| (priority_rank(&issue.priority), issue.id));
+    closed_issues
+        .sort_by_key(|issue| std::cmp::Reverse(issue.closed_at.unwrap_or(issue.updated_at)));
+    closed_issues.truncate(12);
 
     let mut md = String::new();
     md.push_str("---\n");
     md.push_str("title: Chainlink Dashboard\n");
     md.push_str("tags: chainlink\n");
     md.push_str("---\n\n");
-    md.push_str(&format!("- **Last export:** {}\n", format_datetime(now)));
-    md.push_str(&format!(
-        "- **Session:** {}\n\n",
-        session_summary(current_session.as_ref())
-    ));
+    md.push_str(&format!("exported:: {}\n", format_datetime(now)));
+    md.push_str(&format!("open:: {}\n", open_issues.len()));
+    md.push_str(&format!("closed-recent:: {}\n", closed_issues.len()));
+    md.push_str(&format!("active-timers:: {}\n\n", active_timers.len()));
+
+    md.push_str("- **Last export:** ");
+    md.push_str(&format_datetime(now));
+    md.push('\n');
+    md.push_str("- **Current session:** ");
+    md.push_str(&session_summary(current_session.as_ref()));
+    md.push('\n');
+    md.push_str(&format!("- **Open issues:** {}\n", open_issues.len()));
+    md.push_str(&format!("- **Active timers:** {}\n\n", active_timers.len()));
 
     md.push_str("## Open Issues\n\n");
-    md.push_str("| Priority | Issue | Labels | Time |\n");
-    md.push_str("|----------|-------|--------|------|\n");
-    for issue in open_issues {
-        let labels = db.get_labels(issue.id)?;
-        let time = db.get_total_time(issue.id)?;
-        md.push_str(&format!(
-            "| {} | {} {} | {} | {} |\n",
-            table_cell(&issue.priority),
-            issue_link(issue.id),
-            table_cell(&issue.title),
-            table_cell(&labels_or_dash(&labels)),
-            format_duration(time)
-        ));
+    if open_issues.is_empty() {
+        md.push_str("- No open issues\n");
+    } else {
+        for issue in open_issues {
+            write_dashboard_issue_block(&mut md, db, issue)?;
+        }
+    }
+
+    md.push_str("\n## Recently Closed\n\n");
+    if closed_issues.is_empty() {
+        md.push_str("- No recently closed issues\n");
+    } else {
+        for issue in closed_issues {
+            write_dashboard_issue_block(&mut md, db, issue)?;
+        }
     }
 
     md.push_str("\n## Active Timers\n\n");
     if active_timers.is_empty() {
-        md.push_str("(none)\n");
+        md.push_str("- None\n");
     } else {
-        md.push_str("| Issue | Started |\n");
-        md.push_str("|-------|---------|\n");
         for timer in active_timers {
             md.push_str(&format!(
-                "| {} | {} |\n",
+                "- {} started {}\n",
                 issue_link(timer.issue_id),
                 format_datetime(timer.started_at)
             ));
@@ -193,26 +205,62 @@ fn write_dashboard_page(db: &Database, pages_dir: &Path, issues: &[Issue]) -> Re
     }
 
     md.push_str("\n## Recent Sessions\n\n");
-    md.push_str("| # | Started | Ended | Issue | Notes |\n");
-    md.push_str("|---|---------|-------|-------|-------|\n");
-    for session in recent_sessions {
-        md.push_str(&format!(
-            "| {} | {} | {} | {} | {} |\n",
-            session.id,
-            session.started_at.format("%Y-%m-%d"),
-            session
-                .ended_at
-                .map(|dt| dt.format("%Y-%m-%d").to_string())
-                .unwrap_or_else(|| "-".to_string()),
-            session
-                .active_issue_id
-                .map(issue_ref)
-                .unwrap_or_else(|| "-".to_string()),
-            table_cell(session.handoff_notes.as_deref().unwrap_or("-"))
-        ));
+    if recent_sessions.is_empty() {
+        md.push_str("- No sessions\n");
+    } else {
+        for session in recent_sessions {
+            md.push_str(&format!(
+                "- Session #{} - {}\n",
+                session.id,
+                session.started_at.format("%Y-%m-%d")
+            ));
+            md.push_str(&format!(
+                "  started:: {}\n",
+                format_datetime(session.started_at)
+            ));
+            md.push_str(&format!(
+                "  ended:: {}\n",
+                session
+                    .ended_at
+                    .map(format_datetime)
+                    .unwrap_or_else(|| "-".to_string())
+            ));
+            if let Some(issue_id) = session.active_issue_id {
+                md.push_str(&format!("  issue:: {}\n", issue_link(issue_id)));
+            }
+            md.push_str(&format!(
+                "  notes:: {}\n",
+                escape_line(session.handoff_notes.as_deref().unwrap_or("-"))
+            ));
+        }
     }
 
     fs::write(pages_dir.join(DASHBOARD_FILE), md).context("Failed to write dashboard page")
+}
+
+fn write_dashboard_issue_block(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
+    let labels = db.get_labels(issue.id)?;
+    let time = db.get_total_time(issue.id)?;
+    let marker = if issue.status == "closed" {
+        "DONE"
+    } else {
+        "TODO"
+    };
+    md.push_str(&format!(
+        "- {} {} {}\n",
+        marker,
+        issue_link(issue.id),
+        escape_line(&issue.title)
+    ));
+    md.push_str(&format!("  id:: {}\n", issue.id));
+    md.push_str(&format!("  priority:: {}\n", issue.priority));
+    md.push_str(&format!("  status:: {}\n", issue.status));
+    md.push_str(&format!("  labels:: {}\n", labels_or_dash(&labels)));
+    md.push_str(&format!("  time:: {}\n", format_duration(time)));
+    if let Some(parent_id) = issue.parent_id {
+        md.push_str(&format!("  parent:: {}\n", issue_link(parent_id)));
+    }
+    Ok(())
 }
 
 fn write_sessions_page(db: &Database, pages_dir: &Path) -> Result<()> {
@@ -319,10 +367,6 @@ fn priority_rank(priority: &str) -> u8 {
         "low" => 3,
         _ => 4,
     }
-}
-
-fn table_cell(value: &str) -> String {
-    escape_line(value).replace('|', "\\|")
 }
 
 fn escape_line(value: &str) -> String {
