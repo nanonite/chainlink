@@ -139,7 +139,8 @@ chainlink session end --notes "Fixed auth bug, dark mode is next"
 | `chainlink block <id> <blocker_id>` | Mark issue as blocked by another |
 | `chainlink unblock <id> <blocker_id>` | Remove blocking relationship |
 | `chainlink blocked` | List all blocked issues |
-| `chainlink ready` | List issues ready to work on (no blockers) |
+| `chainlink ready` | List issues ready to work on (no blockers; epics are annotated and flagged in `--json`) |
+| `chainlink ready --json` | List ready issues as JSON, including `is_epic`/`subissue_count` |
 
 ### Related Issues
 
@@ -183,7 +184,8 @@ chainlink session end --notes "Fixed auth bug, dark mode is next"
 
 | Command | Description |
 |---------|-------------|
-| `chainlink next` | Recommend the next issue to work on (by priority/progress) |
+| `chainlink next` | Recommend the next actionable issue (descends into epics, picks an unblocked leaf) |
+| `chainlink next --json` | Recommend the next issue as JSON, including the parent epic and `is_epic`/`subissue_count` |
 | `chainlink tree` | Show all issues in a tree hierarchy |
 | `chainlink tree -s open` | Show only open issues in tree view |
 

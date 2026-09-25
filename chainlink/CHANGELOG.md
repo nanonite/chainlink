@@ -12,9 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add input validation constants and functions for DB boundary (#19)
 - Add git commit hash and dirty state to version output (#12)
 - Add build.rs auto-discovery of rule files (#11)
+- Add `--json` support to `issue ready` and `issue next` (#47)
+- Expose `is_epic`/`subissue_count` metadata in `ready` and `next` output (#46)
 
 ### Fixed
 - Fix git command normalization bypass in work-check hook (#18)
 - Fix PRAGMA user_version column name bug causing repeated v7 migration (#17)
+- Fix `issue next` recommending epic/parent issues instead of their unblocked subissues (#46)
 
 ### Changed

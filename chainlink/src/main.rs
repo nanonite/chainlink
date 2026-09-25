@@ -25,7 +25,7 @@ struct Cli {
     #[arg(short, long, global = true)]
     quiet: bool,
 
-    /// Output as JSON (supported by list, show, search, session status)
+    /// Output as JSON (supported by list, show, search, ready, next, session status, timer, usage, locks)
     #[arg(long, global = true)]
     json: bool,
 
@@ -1196,7 +1196,11 @@ fn dispatch_issue(
 
         IssueCommands::Ready => {
             let db = get_db(db_path)?;
-            commands::deps::list_ready(&db)
+            if json {
+                commands::deps::list_ready_json(&db)
+            } else {
+                commands::deps::list_ready(&db)
+            }
         }
 
         IssueCommands::Relate {
@@ -1235,7 +1239,11 @@ fn dispatch_issue(
         IssueCommands::Next => {
             let db = get_db(db_path)?;
             let chainlink_dir = find_chainlink_dir(db_path)?;
-            commands::next::run(&db, &chainlink_dir)
+            if json {
+                commands::next::run_json(&db, &chainlink_dir)
+            } else {
+                commands::next::run(&db, &chainlink_dir)
+            }
         }
 
         IssueCommands::Tree { status } => {

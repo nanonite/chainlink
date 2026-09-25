@@ -910,6 +910,92 @@ fn test_next_no_issues() {
     );
 }
 
+#[test]
+fn test_next_skips_epic_and_recommends_subissue() {
+    let dir = tempdir().unwrap();
+    init_chainlink(dir.path());
+
+    run_chainlink(dir.path(), &["create", "EPIC: container", "-p", "critical"]);
+    run_chainlink(
+        dir.path(),
+        &["subissue", "1", "Actionable leaf", "-p", "medium"],
+    );
+
+    let (success, stdout, _) = run_chainlink(dir.path(), &["next"]);
+
+    assert!(success, "next failed: {}", stdout);
+    assert!(
+        stdout.contains("Actionable leaf"),
+        "next should recommend the leaf subissue, got: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("Next: #1"),
+        "next must not recommend the epic container, got: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Part of epic #1"),
+        "next should identify the parent epic, got: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_next_json_reports_leaf_and_parent() {
+    let dir = tempdir().unwrap();
+    init_chainlink(dir.path());
+
+    run_chainlink(dir.path(), &["create", "EPIC: container", "-p", "critical"]);
+    run_chainlink(
+        dir.path(),
+        &["subissue", "1", "Actionable leaf", "-p", "medium"],
+    );
+
+    let (success, stdout, _) = run_chainlink(dir.path(), &["--json", "next"]);
+
+    assert!(success, "next --json failed: {}", stdout);
+    assert!(stdout.contains("\"next\""), "got: {}", stdout);
+    assert!(stdout.contains("Actionable leaf"), "got: {}", stdout);
+    assert!(stdout.contains("\"is_epic\": false"), "got: {}", stdout);
+    assert!(stdout.contains("\"parent\""), "got: {}", stdout);
+    assert!(stdout.contains("\"is_epic\": true"), "got: {}", stdout);
+}
+
+#[test]
+fn test_ready_json_includes_epic_metadata() {
+    let dir = tempdir().unwrap();
+    init_chainlink(dir.path());
+
+    run_chainlink(dir.path(), &["create", "EPIC: container", "-p", "high"]);
+    run_chainlink(dir.path(), &["subissue", "1", "Leaf", "-p", "low"]);
+
+    let (success, stdout, _) = run_chainlink(dir.path(), &["--json", "ready"]);
+
+    assert!(success, "ready --json failed: {}", stdout);
+    assert!(stdout.contains("\"is_epic\": true"), "got: {}", stdout);
+    assert!(stdout.contains("\"is_epic\": false"), "got: {}", stdout);
+    assert!(stdout.contains("\"subissue_count\": 1"), "got: {}", stdout);
+}
+
+#[test]
+fn test_ready_text_annotates_epic() {
+    let dir = tempdir().unwrap();
+    init_chainlink(dir.path());
+
+    run_chainlink(dir.path(), &["create", "EPIC: container", "-p", "high"]);
+    run_chainlink(dir.path(), &["subissue", "1", "Leaf", "-p", "low"]);
+
+    let (success, stdout, _) = run_chainlink(dir.path(), &["ready"]);
+
+    assert!(success, "ready failed: {}", stdout);
+    assert!(
+        stdout.contains("[epic:"),
+        "ready should annotate epic containers, got: {}",
+        stdout
+    );
+}
+
 // ==================== Export/Import Tests ====================
 
 #[test]

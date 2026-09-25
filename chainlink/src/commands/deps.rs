@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 
+use super::epic::{self, IssueWithEpic};
 use crate::db::Database;
 use crate::utils::{format_issue_id, truncate};
 
@@ -60,8 +61,18 @@ pub fn list_blocked(db: &Database) -> Result<()> {
     Ok(())
 }
 
-pub fn list_ready(db: &Database) -> Result<()> {
+/// Ready issues enriched with epic metadata, in database order.
+pub fn ready_with_epic(db: &Database) -> Result<Vec<IssueWithEpic>> {
     let issues = db.list_ready_issues()?;
+    let stats = epic::subissue_stats(db)?;
+    Ok(issues
+        .into_iter()
+        .map(|issue| IssueWithEpic::from_issue(issue, &stats))
+        .collect())
+}
+
+pub fn list_ready(db: &Database) -> Result<()> {
+    let issues = ready_with_epic(db)?;
 
     if issues.is_empty() {
         println!("No ready issues.");
@@ -69,15 +80,34 @@ pub fn list_ready(db: &Database) -> Result<()> {
     }
 
     println!("Ready issues (no blockers):");
-    for issue in issues {
+    for entry in issues {
+        let epic_note = if entry.is_epic {
+            let closed = entry.subissue_count - entry.open_subissue_count;
+            format!(
+                " [epic: {}/{} subissues done]",
+                closed, entry.subissue_count
+            )
+        } else {
+            String::new()
+        };
         println!(
-            "  {:<5} {:8} {}",
-            format_issue_id(issue.id),
-            issue.priority,
-            issue.title
+            "  {:<5} {:8} {}{}",
+            format_issue_id(entry.issue.id),
+            entry.issue.priority,
+            entry.issue.title,
+            epic_note
         );
     }
 
+    Ok(())
+}
+
+/// JSON variant of [`list_ready`]. Each entry is the issue plus `is_epic`,
+/// `subissue_count`, and `open_subissue_count` so callers can distinguish
+/// containers from executable work without parsing the title.
+pub fn list_ready_json(db: &Database) -> Result<()> {
+    let enriched = ready_with_epic(db)?;
+    println!("{}", serde_json::to_string_pretty(&enriched)?);
     Ok(())
 }
 
@@ -267,6 +297,32 @@ mod tests {
 
         let ready = db.list_ready_issues().unwrap();
         assert!(!ready.iter().any(|i| i.id == issue));
+    }
+
+    #[test]
+    fn test_ready_with_epic_flags_container() {
+        let (db, _dir) = setup_test_db();
+        let epic = db.create_issue("Epic", None, "high").unwrap();
+        let child = db.create_subissue(epic, "Child", None, "medium").unwrap();
+
+        let rows = ready_with_epic(&db).unwrap();
+        let epic_row = rows.iter().find(|r| r.issue.id == epic).unwrap();
+        let child_row = rows.iter().find(|r| r.issue.id == child).unwrap();
+
+        assert!(epic_row.is_epic);
+        assert_eq!(epic_row.subissue_count, 1);
+        assert_eq!(epic_row.open_subissue_count, 1);
+
+        assert!(!child_row.is_epic);
+        assert_eq!(child_row.subissue_count, 0);
+    }
+
+    #[test]
+    fn test_list_ready_variants_run_on_empty_db() {
+        let (db, _dir) = setup_test_db();
+        list_ready(&db).unwrap();
+        list_ready_json(&db).unwrap();
+        assert!(ready_with_epic(&db).unwrap().is_empty());
     }
 
     // Integration tests

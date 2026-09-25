@@ -5,6 +5,7 @@ pub mod cpitd;
 pub mod create;
 pub mod delete;
 pub mod deps;
+pub mod epic;
 pub mod export;
 pub mod import;
 pub mod init;
