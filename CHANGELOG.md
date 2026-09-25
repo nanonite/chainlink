@@ -78,6 +78,7 @@ context-compression resilience.
 - Fix daemon log file corruption from duplicate file handles (#97)
 
 ### Changed
+- Write --no-hooks summary notes to NO_HOOKS_NOTES.md (#1)
 - Timer JSON output now always returns an array of active timers; `timer stop` requires an explicit issue id because timers can run concurrently across issues (#241)
 - Block git mutation commands via hook (#113)
 - Fix wrong assertion directions and tautological property tests (#96)
